@@ -1,25 +1,73 @@
 import 'package:flutter/material.dart';
-import 'package:wajiha_game_core/wajiha_game_core.dart';
-import 'game_screen.dart';
+import 'package:flutter/services.dart';
+import 'screens/splash_screen.dart';
+import 'services/audio_service.dart';
+import 'services/settings_service.dart';
+import 'theme/meadow.dart';
+import 'theme/sky_themes.dart';
 
-void main() => runApp(const FlapDashApp());
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ]);
+  final settings = FlapSettings();
+  await settings.load();
+  final audio = FlapAudio();
+  audio.configure(
+    musicOn: settings.musicOn,
+    sfxOn: settings.sfxOn,
+    volume: settings.volume,
+  );
+  runApp(FlapDashApp(settings: settings, audio: audio));
+}
 
-class FlapDashApp extends StatelessWidget {
-  const FlapDashApp({super.key});
+class FlapDashApp extends StatefulWidget {
+  final FlapSettings settings;
+  final FlapAudio audio;
+  const FlapDashApp({super.key, required this.settings, required this.audio});
+
+  @override
+  State<FlapDashApp> createState() => _FlapDashAppState();
+}
+
+class _FlapDashAppState extends State<FlapDashApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    widget.audio.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Pause (not stop) on interruption so music resumes exactly where it
+    // left off; game screens additionally freeze their engines.
+    if (state == AppLifecycleState.paused) {
+      widget.audio.onAppPaused();
+    } else if (state == AppLifecycleState.resumed) {
+      widget.audio.onAppResumed();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return GameShell(
-      variant: ShellVariant.softBlob,
-      title: 'Flap Dash',
-      tagline: 'One tap at a time — thread the crystal gates.',
-      emoji: '🐤',
-      slug: 'flapdash',
-      howToPlay:
-          '• TAP to flap your wings. Gravity is rude.\n• Thread the glowing crystal gates — don\'t bonk them!\n• Medals at 10 🥉 20 🥈 30 🥇 and 40 💠.\n• Day and night flights. Speed creeps up. Stay frosty. 🐤',
-      playerOptions: const [1],
-      supportsBots: false,
-      gameBuilder: (ctx, players, cb) => FlapDashScreen(players: players, callbacks: cb),
+    return ListenableBuilder(
+      listenable: widget.settings,
+      builder: (_, _) => MaterialApp(
+        title: 'Flap Dash',
+        debugShowCheckedModeBanner: false,
+        theme: Meadow.theme(
+            SkyThemes.byId(widget.settings.themeId, custom: widget.settings.customTheme)),
+        home: SplashScreen(audio: widget.audio, settings: widget.settings),
+      ),
     );
   }
 }
