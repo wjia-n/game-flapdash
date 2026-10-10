@@ -70,7 +70,7 @@ class FlapSettings extends ChangeNotifier {
   int bestAttack = 0;
   int gamesPlayed = 0;
   int totalFlaps = 0;
-  bool isPro = false;
+  bool isPro = true; // everything unlocked — no Pro version
 
   /// Custom creator colors (ARGB ints). Defaults mirror Sunny Finch /
   /// Crystal Gates / Meadow Day.
@@ -151,7 +151,7 @@ class FlapSettings extends ChangeNotifier {
     bestAttack = p.getInt(_kBestAttack) ?? 0;
     gamesPlayed = p.getInt(_kGames) ?? 0;
     totalFlaps = p.getInt(_kFlaps) ?? 0;
-    isPro = p.getBool(_kIsPro) ?? false;
+    isPro = true; // everything unlocked
     for (final k in _defaultCustomColors.keys) {
       customColors[k] =
           p.getInt('$_kCustomPrefix$k') ?? _defaultCustomColors[k]!;
