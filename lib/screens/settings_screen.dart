@@ -5,6 +5,7 @@ import '../services/audio_service.dart';
 import '../services/settings_service.dart';
 import '../theme/meadow.dart';
 import '../theme/sky_themes.dart';
+import '../transfer/transfer_ui.dart';
 
 /// Settings: audio toggles + volume, with live preview of the theme.
 class SettingsScreen extends StatelessWidget {
@@ -69,6 +70,7 @@ class SettingsScreen extends StatelessWidget {
                   const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
               child: Column(
                 children: [
+              TransferSaveTile(gameSlug: 'flapdash'),
                   SettingRow(
                     theme: t,
                     label: '🎵 Music',
