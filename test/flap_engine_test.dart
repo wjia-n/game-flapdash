@@ -4,6 +4,15 @@ import 'package:flapdash/engine/flap_engine.dart';
 /// Engine state-machine tests: phases transition on engine timers only,
 /// scoring is deterministic, and no phase can get stuck.
 void main() {
+  /// Wait until the engine's 3×700ms countdown actually reaches flying.
+  /// A fixed sleep is flaky under VM timer slop, so poll instead.
+  Future<void> waitForFlying(FlapEngine e) async {
+    for (int i = 0; i < 100 && e.phase != FlapPhase.flying; i++) {
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+    expect(e.phase, FlapPhase.flying);
+  }
+
   group('FlapEngine state machine', () {
     test('begin() starts a countdown that reaches flying', () async {
       final e = FlapEngine(difficulty: 0, mode: FlapMode.classic);
@@ -11,9 +20,7 @@ void main() {
       e.begin();
       expect(e.phase, FlapPhase.countdown);
       expect(e.countdown, 3);
-      // 3 beats of 700ms.
-      await Future.delayed(const Duration(milliseconds: 2300));
-      expect(e.phase, FlapPhase.flying);
+      await waitForFlying(e);
       e.dispose();
     });
 
@@ -30,14 +37,15 @@ void main() {
     test('physics tick scores and never double-crashes', () async {
       final e = FlapEngine(difficulty: 0, mode: FlapMode.classic);
       e.begin();
-      await Future.delayed(const Duration(milliseconds: 2300));
+      await waitForFlying(e);
       expect(e.phase, FlapPhase.flying);
       // Keep the bird alive by flapping on a simple schedule: flap whenever
-      // falling. Run ~8 simulated seconds.
-      for (int i = 0; i < 480; i++) {
-        if (e.vy > 0.35) e.flap();
+      // falling or drifting too low. Run ~30 simulated seconds — the first
+      // gates now spawn further out and approach at a gentler ramped speed.
+      for (int i = 0; i < 1800; i++) {
+        if (e.vy > 0.2 || e.birdY > 0.7) e.flap();
         e.tick(1 / 60);
-        if (e.phase != FlapPhase.flying) break;
+        if (e.phase != FlapPhase.flying || e.score > 0) break;
       }
       // Either still flying (scoring) or dying/over (crashed once).
       expect(
@@ -57,8 +65,10 @@ void main() {
     test('ceiling crash ends the run and settles to over', () async {
       final e = FlapEngine(difficulty: 0, mode: FlapMode.classic);
       e.begin();
-      await Future.delayed(const Duration(milliseconds: 2300));
-      e.vy = -5; // rocket to the moon
+      await waitForFlying(e);
+      e.graceT = 0; // grace immunity is tested separately below
+      e.birdY = 0.0;
+      e.vy = -1; // already at the sky's edge: one tick rockets to the moon
       e.tick(1 / 60);
       expect(e.phase, FlapPhase.dying);
       expect(e.deathReason, contains('moon'));
@@ -67,11 +77,52 @@ void main() {
       e.dispose();
     });
 
+    test('grace period blocks early deaths and the ramp eases in', () async {
+      final e = FlapEngine(difficulty: 0, mode: FlapMode.classic);
+      e.begin();
+      await waitForFlying(e);
+      expect(e.phase, FlapPhase.flying);
+      expect(e.inGrace, isTrue);
+      // First gates spawn far out, not on top of the bird.
+      expect(e.gates.first.x, greaterThanOrEqualTo(2.5));
+      // Slam into the floor during grace: no death, soft-clamped instead.
+      e.birdY = 1.5;
+      e.vy = 5;
+      e.tick(1 / 60);
+      expect(e.phase, FlapPhase.flying);
+      expect(e.birdY, 0.97);
+      // Difficulty starts gentle: slower speed, wider gaps.
+      expect(e.effectiveSpeedBase, lessThan(e.spec.baseSpeed));
+      expect(e.effectiveGapH, greaterThan(e.spec.gapH));
+      // After the grace expires, the same slam kills.
+      e.graceT = 0;
+      e.birdY = 1.5;
+      e.vy = 5;
+      e.tick(1 / 60);
+      expect(e.phase, FlapPhase.dying);
+      e.dispose();
+    });
+
+    test('infinite-lives cheat respawns instead of dying', () async {
+      final e = FlapEngine(difficulty: 0, mode: FlapMode.classic);
+      FlapEngine.infiniteLivesCheat = true;
+      e.begin();
+      await waitForFlying(e);
+      e.graceT = 0; // grace immunity off so the crash path runs
+      e.birdY = 1.5;
+      e.vy = 5;
+      e.tick(1 / 60);
+      expect(e.phase, FlapPhase.flying); // saved, no penalty
+      expect(e.birdY, 0.45);
+      FlapEngine.infiniteLivesCheat = false;
+      e.dispose();
+    });
+
     test('attack mode ends at time-up even without crashing', () async {
       final e = FlapEngine(difficulty: 0, mode: FlapMode.attack);
       e.begin();
-      await Future.delayed(const Duration(milliseconds: 2300));
-      e.timeLeft = 0.05;
+      await waitForFlying(e);
+      e.timeLeft = 0.01; // one tick (1/60s) burns past zero
       e.tick(1 / 60);
       expect(e.phase, FlapPhase.over);
       expect(e.deathReason, isNull);
@@ -81,7 +132,8 @@ void main() {
     test('restart works from over', () async {
       final e = FlapEngine(difficulty: 0, mode: FlapMode.classic);
       e.begin();
-      await Future.delayed(const Duration(milliseconds: 2300));
+      await waitForFlying(e);
+      e.graceT = 0; // grace immunity is tested separately above
       e.vy = 5; // face-plant
       for (int i = 0; i < 10 && e.phase == FlapPhase.flying; i++) {
         e.tick(1 / 60);

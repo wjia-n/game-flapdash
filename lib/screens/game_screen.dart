@@ -4,6 +4,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:in_app_review/in_app_review.dart';
 import 'package:share_plus/share_plus.dart';
 import '../engine/flap_engine.dart';
+import '../cheat_menu.dart';
 import '../services/audio_service.dart';
 import '../services/settings_service.dart';
 import '../theme/meadow.dart';
@@ -53,6 +54,10 @@ class _GameScreenState extends State<GameScreen>
     WidgetsBinding.instance.addObserver(this);
     _e.onEvent = _onEvent;
     _e.addListener(_onEngine);
+    FlapEngine.active = _e; // cheat menu (from settings) reaches the engine
+    CheatMenu.infiniteLives.then((v) {
+      if (mounted) FlapEngine.infiniteLivesCheat = v;
+    });
     _ticker = createTicker(_onTick)..start();
     widget.audio.startGameMusic();
     // Auto-begin after a beat so the countdown owns the flow.
@@ -157,6 +162,7 @@ class _GameScreenState extends State<GameScreen>
     WidgetsBinding.instance.removeObserver(this);
     _e.removeListener(_onEngine);
     _ticker?.dispose();
+    if (identical(FlapEngine.active, _e)) FlapEngine.active = null;
     _e.dispose();
     super.dispose();
   }
@@ -663,7 +669,7 @@ class _FlapPainter extends CustomPainter {
   void _drawGate(Canvas canvas, double w, double h, Gate g) {
     final gx = g.x * w;
     final gw = FlapEngine.gateW * w;
-    final gapH = e.spec.gapH * h;
+    final gapH = e.effectiveGapH * h;
     final gc = e.gapCenter(g) * h;
     final gapTop = gc - gapH / 2;
     final gapBot = gc + gapH / 2;
@@ -750,9 +756,25 @@ class _FlapPainter extends CustomPainter {
         : 1.0;
     canvas.save();
     canvas.translate(bx, by);
+    // Grace-period shield: visible bubble while collisions can't kill.
+    if (e.inGrace && e.phase == FlapPhase.flying) {
+      final pulse = 0.55 + 0.15 * sin(e.wingT * 1.5);
+      canvas.drawCircle(
+        Offset.zero,
+        44,
+        Paint()
+          ..color = Colors.white.withValues(alpha: 0.28 * pulse)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 5,
+      );
+      canvas.drawCircle(
+        Offset.zero,
+        44,
+        Paint()..color = Colors.white.withValues(alpha: 0.10 * pulse),
+      );
+    }
     canvas.rotate(tilt);
-    canvas.scale(flapPop);
-    // Drop shadow on the world below (fake AO).
+    canvas.scale(flapPop);    // Drop shadow on the world below (fake AO).
     // Body.
     canvas.drawOval(
         Rect.fromCenter(center: Offset.zero, width: 54, height: 42),

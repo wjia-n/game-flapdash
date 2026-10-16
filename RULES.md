@@ -14,7 +14,11 @@ zero — the score stands.
 - Mode chosen in Flight Setup: Classic (endless) or Score Attack (60s).
 - Sky, bird style, and gate style chosen in the Style Studio; they never
   change gameplay values.
-- Each run starts with a 3-2-1 countdown owned by the engine.
+- Each run starts with a 3-2-1 countdown owned by the engine. The bird is
+  held steady (no gravity) during the countdown; physics starts at "Fly!".
+- The first gates spawn far out (x=2.5+) and the run begins with a 3-second
+  grace period: collisions can't kill the bird (shown as a shield bubble),
+  and the bird slides along the sky's edges instead of dying.
 
 ## 3. Turn order
 There are no turns — Flap Dash is a real-time arcade game. The engine ticks
@@ -38,7 +42,12 @@ Not applicable — there are no opponents or pieces to capture.
 
 ## 7. Special rules
 - **Gravity:** constant downward acceleration; the bird always falls unless
-  flapped.
+  flapped. (Suspended during the countdown — the bird holds steady.)
+- **Grace period:** for 3 seconds after "Fly!", nothing can kill the bird.
+  Floor/ceiling become soft rails and gate collisions are skipped, so new
+  players can learn flapping safely.
+- **Gentle ramp:** runs start at 70% gate speed with 35% wider gaps, easing
+  to the full difficulty spec over the first 20 seconds of flight.
 - **Ceiling:** touching the top of the sky ("To the moon!") ends the run.
 - **Floor:** touching the bottom ("Face-plant!") ends the run.
 - **Storm sway:** on Storm difficulty, gate gaps sway up and down over time;

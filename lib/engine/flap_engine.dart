@@ -103,6 +103,15 @@ class FlapEngine extends ChangeNotifier {
   final int difficulty; // 0/1/2
   final FlapMode mode;
 
+  /// Currently visible engine — set by the game screen so the cheat menu
+  /// (opened from settings, with no engine in scope) can reach it.
+  static FlapEngine? active;
+
+  /// Synchronous mirror of the persisted infinite-lives cheat. Written by
+  /// the game screen at startup and by the cheat menu's switch; read by
+  /// [_crash] on every death.
+  static bool infiniteLivesCheat = false;
+
   DifficultySpec get spec => difficultySpecs[difficulty.clamp(0, 2)];
 
   FlapPhase phase = FlapPhase.idle;
@@ -138,6 +147,29 @@ class FlapEngine extends ChangeNotifier {
   static const double gateW = 0.09;
   static const double flapImpulse = -0.95;
   static const double gravity = 2.9;
+
+  /// Grace period: seconds of collision immunity right after "Go!", so new
+  /// players can get a feel for flapping before any mistake can kill them.
+  static const double graceDuration = 3.0;
+
+  /// Gentle ramp: the first seconds of a run ease in at reduced speed with
+  /// wider gate gaps, then ramp to the full difficulty spec over this many
+  /// seconds of flight.
+  static const double rampDuration = 20.0;
+
+  double graceT = 0; // counts down during flight; >0 = no collision death
+
+  /// True while the post-"Go!" grace period is active.
+  bool get inGrace => graceT > 0;
+
+  /// 0 → 1 difficulty ramp over the first [rampDuration] seconds of flight.
+  double get rampT => (flightTime / rampDuration).clamp(0.0, 1.0);
+
+  /// Gentler start: 70% base speed easing up to the full spec.
+  double get effectiveSpeedBase => spec.baseSpeed * (0.7 + 0.3 * rampT);
+
+  /// Gentler start: 35% wider gaps easing down to the full spec.
+  double get effectiveGapH => spec.gapH * (1.35 - 0.35 * rampT);
 
   FlapEngine({required this.difficulty, required this.mode}) {
     banner = mode == FlapMode.attack
@@ -200,18 +232,25 @@ class FlapEngine extends ChangeNotifier {
 
   // ------------------------------------------------------------- flow
   /// Start a run from idle/over. Engine-owned reset, no stale state.
-  void begin() {
-    if (phase != FlapPhase.idle && phase != FlapPhase.over) return;
+  /// With [force], resets from ANY phase (cheat-menu / unstick recovery).
+  void begin({bool force = false}) {
+    if (!force && phase != FlapPhase.idle && phase != FlapPhase.over) return;
     _timer?.cancel();
     score = 0;
     birdY = 0.45;
     vy = 0;
     gates
       ..clear()
-      ..addAll([Gate(1.25, _randGap(), _randPhase()), Gate(1.9, _randGap(), _randPhase())]);
+      ..addAll([
+        // First gates spawn far out so the player has time to learn
+        // flapping before any obstacle can reach the bird.
+        Gate(2.5, _randGap(), _randPhase()),
+        Gate(3.15, _randGap(), _randPhase()),
+      ]);
     pops.clear();
-    speed = spec.baseSpeed;
     flightTime = 0;
+    speed = effectiveSpeedBase; // flightTime=0 → gentle 70% start
+    graceT = graceDuration; // collision immunity after "Go!"
     wingT = 0;
     wobbleTime = 0;
     shakeT = 99;
@@ -233,7 +272,8 @@ class FlapEngine extends ChangeNotifier {
     countdown--;
     if (countdown <= 0) {
       phase = FlapPhase.flying;
-      banner = mode == FlapMode.attack ? 'Go! 60 seconds!' : 'Fly!';
+      graceT = graceDuration; // fresh immunity for this run
+      banner = mode == FlapMode.attack ? 'Go! 60 seconds! 🛡️' : 'Fly! 🛡️';
       onEvent?.call(FlapEvent.gameStart);
       notifyListeners();
     } else {
@@ -294,14 +334,29 @@ class FlapEngine extends ChangeNotifier {
       }
     }
 
-    // Out of sky = crash.
-    if (birdY < 0.02) {
-      _crash('To the moon! 🌙');
-      return;
-    }
-    if (birdY > 0.97) {
-      _crash('Face-plant! 💥');
-      return;
+    // Grace period counts down; nothing can kill the bird while it lasts.
+    if (graceT > 0) {
+      graceT = (graceT - dt).clamp(0.0, graceDuration);
+      // Soft rails: the bird slides along the sky's edges instead of
+      // dying, so the player can experiment with flapping safely.
+      if (birdY < 0.02) {
+        birdY = 0.02;
+        vy = vy < 0 ? 0 : vy;
+      }
+      if (birdY > 0.97) {
+        birdY = 0.97;
+        vy = vy > 0 ? 0 : vy;
+      }
+    } else {
+      // Out of sky = crash.
+      if (birdY < 0.02) {
+        _crash('To the moon! 🌙');
+        return;
+      }
+      if (birdY > 0.97) {
+        _crash('Face-plant! 💥');
+        return;
+      }
     }
 
     for (final g in gates) {
@@ -313,21 +368,23 @@ class FlapEngine extends ChangeNotifier {
       gates.add(Gate(prevX + 0.65, _randGap(), _randPhase()));
     }
 
-    final gapH = spec.gapH;
+    final gapH = effectiveGapH;
     for (final g in gates) {
       // Scoring: bird fully passed the gate. Visible, never silent.
       if (!g.scored && g.x + gateW < birdX) {
         g.scored = true;
         score++;
         pops.add(ScorePop(birdX + 0.1, birdY - 0.12));
-        speed = (spec.baseSpeed + score * 0.004).clamp(
-            spec.baseSpeed, spec.maxSpeed);
+        speed = (effectiveSpeedBase + score * 0.004).clamp(
+            effectiveSpeedBase, spec.maxSpeed);
         _checkMedals();
         banner = score % 5 == 0 ? '$score gates! Keep going!' : banner;
         onEvent?.call(FlapEvent.score);
       }
-      // Collision with the swaying gate.
-      if ((birdX + birdR > g.x) && (birdX - birdR < g.x + gateW)) {
+      // Collision with the swaying gate — disabled during the grace period.
+      if (!inGrace &&
+          (birdX + birdR > g.x) &&
+          (birdX - birdR < g.x + gateW)) {
         final gc = gapCenter(g);
         final gapTop = gc - gapH / 2;
         final gapBot = gc + gapH / 2;
@@ -370,6 +427,16 @@ class FlapEngine extends ChangeNotifier {
 
   void _crash(String reason) {
     if (phase != FlapPhase.flying) return;
+    if (infiniteLivesCheat) {
+      // Cheat: bounce back into the sky instead of dying — no penalty.
+      birdY = 0.45;
+      vy = 0;
+      graceT = 2.0; // brief breather after the save
+      banner = '🛡️ Cheat save!';
+      onEvent?.call(FlapEvent.gameStart);
+      notifyListeners();
+      return;
+    }
     phase = FlapPhase.dying;
     deathReason = reason;
     shakeT = 0;
@@ -403,4 +470,42 @@ class FlapEngine extends ChangeNotifier {
 
   /// Full restart — identical to [begin] from any non-flying phase.
   void restart() => begin();
+
+  // ------------------------------------------------------- cheat hooks
+  /// Cheat: pass the next few gates without flying through them.
+  void cheatSkipLevel() {
+    if (phase != FlapPhase.flying) return;
+    var skipped = 0;
+    for (final g in gates) {
+      if (skipped >= 3) break;
+      if (!g.scored) {
+        g.scored = true;
+        score++;
+        skipped++;
+        pops.add(ScorePop(birdX + 0.1, birdY - 0.12));
+        speed = (effectiveSpeedBase + score * 0.004).clamp(
+            effectiveSpeedBase, spec.maxSpeed);
+      }
+    }
+    if (skipped > 0) {
+      _checkMedals();
+      banner = '⏭ Skipped ahead!';
+      onEvent?.call(FlapEvent.score);
+      notifyListeners();
+    }
+  }
+
+  /// Cheat: Flap Dash has no final win (score attack), so "win" means a
+  /// big score bump with every medal fanned out.
+  void cheatInstantWin() {
+    if (phase != FlapPhase.flying) return;
+    score += 25;
+    _checkMedals();
+    banner = '🏆 Cheat win — nice flying!';
+    onEvent?.call(FlapEvent.medal);
+    notifyListeners();
+  }
+
+  /// Cheat: full restart from any phase.
+  void cheatReset() => begin(force: true);
 }
