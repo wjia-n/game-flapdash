@@ -149,6 +149,21 @@ class StoreService {
     }
   }
 
+  /// iOS Gold Star: NON-consumable. Never consumed; acknowledged via
+  /// completePurchase in _onPurchases. Game stays fully unlocked.
+  Future<void> buyStar(ProductDetails product) async {
+    purchaseError.value = null;
+    purchaseInProgress.value = true;
+    try {
+      await _iap!.buyNonConsumable(
+        purchaseParam: PurchaseParam(productDetails: product),
+      );
+    } catch (_) {
+      purchaseInProgress.value = false;
+      purchaseError.value = 'Purchase failed — please try again.';
+    }
+  }
+
   Future<void> restore() async {
     purchaseError.value = null;
     try {
