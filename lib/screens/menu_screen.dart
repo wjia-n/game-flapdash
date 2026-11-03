@@ -314,7 +314,7 @@ class _MenuScreenState extends State<MenuScreen> {
                   '• Each gate = 1 point. Speed creeps up as you score.',
                   '• Medals at 10 🥉  20 🥈  30 🥇  40 💠.',
                   '• Classic: fly as far as you can. Score Attack: 60 seconds!',
-                  '• Breeze is gentle, Gust is spicy, Storm (PRO) sways the gates.',
+                  defaultTargetPlatform == TargetPlatform.iOS ? '• Breeze is gentle, Gust is spicy, Storm sways the gates.' : '• Breeze is gentle, Gust is spicy, Storm (PRO) sways the gates.',
                   '• Bonk a gate or leave the sky and the flight ends.',
                 ])
                   Padding(
@@ -461,7 +461,7 @@ class _ModeCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            difficultySpecs[s.difficulty].blurb,
+            (defaultTargetPlatform == TargetPlatform.iOS ? (difficultySpecs[s.difficulty].blurbIos ?? difficultySpecs[s.difficulty].blurb) : difficultySpecs[s.difficulty].blurb),
             style: Meadow.body(12, theme: theme),
             textAlign: TextAlign.center,
           ),
@@ -533,14 +533,6 @@ class _StyleCard extends StatelessWidget {
               ),
             ],
           ),
-          if (!isPro)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                '🔒 ${SkyThemes.all.length - SkyThemes.freeThemeIds.length} more skies in PRO',
-                style: Meadow.label(12, theme: theme),
-              ),
-            ),
           const SizedBox(height: 14),
           Text('Bird:', style: Meadow.label(14, theme: theme)),
           const SizedBox(height: 6),
@@ -618,7 +610,7 @@ class _StyleCard extends StatelessWidget {
           const SizedBox(height: 8),
           Center(
             child: Text(
-              'Custom styles live in the 🎨 Style Creator (PRO).',
+              defaultTargetPlatform == TargetPlatform.iOS ? 'Custom styles live in the 🎨 Style Creator.' : 'Custom styles live in the 🎨 Style Creator (PRO).',
               style: Meadow.body(12, theme: theme),
               textAlign: TextAlign.center,
             ),

@@ -22,6 +22,8 @@ enum FlapMode { classic, attack }
 class DifficultySpec {
   final String name;
   final String blurb;
+  // iOS variant: same blurb without the PRO tag (Android keeps the original).
+  final String? blurbIos;
   final double baseSpeed; // fraction of width per second
   final double maxSpeed;
   final double gapH; // fraction of height
@@ -30,6 +32,7 @@ class DifficultySpec {
   const DifficultySpec({
     required this.name,
     required this.blurb,
+    this.blurbIos,
     required this.baseSpeed,
     required this.maxSpeed,
     required this.gapH,
@@ -57,6 +60,7 @@ const difficultySpecs = [
   DifficultySpec(
     name: 'Storm',
     blurb: 'PRO — wild wind, swaying gates, pure chaos.',
+    blurbIos: 'Wild wind, swaying gates, pure chaos.',
     baseSpeed: 0.32,
     maxSpeed: 0.50,
     gapH: 0.20,
